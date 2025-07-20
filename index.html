@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Binary Capital Manager (Cloud Sync)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg:#f5f7fa;
+      --card:#ffffff;
+      --text:#1e293b;
+      --accent:#007aff;
+      --green:#22c55e;
+      --red:#ef4444;
+      --yellow:#f59e0b;
+      --shadow:0 6px 20px rgba(0,0,0,.06);
+      --radius:20px;
+    }
+    @media (prefers-color-scheme: dark){
+      :root{
+        --bg:#0f172a;
+        --card:#1e293b;
+        --text:#f1f5f9;
+        --accent:#0ea5e9;
+      }
+    }
+    *{box-sizing:border-box;margin:0;padding:0;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}
+    body{background:var(--bg);color:var(--text);display:flex;align-items:flex-start;justify-content:center;padding:30px 20px;min-height:100vh}
+    .wrapper{max-width:620px;width:100%;display:flex;flex-direction:column;gap:32px}
+    .card{background:var(--card);border-radius:var(--radius);padding:24px 32px;box-shadow:var(--shadow)}
+    h1{font-size:28px;font-weight:600;text-align:center;margin-bottom:24px}
+    label{font-size:15px;font-weight:500;margin-bottom:6px;display:block}
+    input[type=number]{width:100%;padding:12px 14px;border:1px solid #94a3b8;border-radius:12px;font-size:17px;background:var(--card);color:var(--text);margin-bottom:8px}
+    .dashboard{text-align:center}
+    .stake{font-size:54px;font-weight:600;color:var(--accent)}
+    .status{font-size:20px;font-weight:600;margin:4px 0 18px}
+    .ok{color:var(--green)}.warn{color:var(--yellow)}.stop{color:var(--red)}
+    .quick-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    .quick-btn{background:var(--accent);color:#fff;border:none;border-radius:18px;padding:16px 0;font-size:16px;font-weight:600;cursor:pointer;transition:opacity .2s}
+    .quick-btn:hover{opacity:.9}
+    .sort-bar{display:flex;gap:10px;justify-content:center;margin-bottom:18px;flex-wrap:wrap}
+    .sort-btn{background:transparent;border:1px solid var(--accent);color:var(--accent);border-radius:12px;padding:6px 12px;font-size:14px;cursor:pointer;transition:.2s}
+    .sort-btn.asc{background:var(--accent);color:#fff}
+    .sort-btn.desc{background:var(--accent);color:#fff}
+    #trade-list{max-height:420px;overflow-y:auto;scrollbar-width:thin}
+    .trade-card{
+      display:grid;
+      grid-template-columns:40px 1fr 80px 80px 60px 60px 60px 40px;
+      align-items:center;
+      gap:12px;
+      background:rgba(255,255,255,.85);
+      backdrop-filter:blur(20px);
+      border:1px solid rgba(255,255,255,.2);
+      margin-bottom:10px;
+      padding:18px 22px;
+      border-radius:16px;
+      box-shadow:0 4px 12px rgba(0,0,0,.04);
+      transition:transform .3s,opacity .3s;
+    }
+    @media (prefers-color-scheme: dark){
+      .trade-card{background:rgba(30,41,59,.7);border:1px solid rgba(255,255,255,.08)}
+    }
+    .trade-card:hover{transform:translateY(-2px)}
+    .trade-cell{font-size:15px;font-weight:500;text-align:center}
+    .trade-cell select{background:transparent;border:none;font-size:15px;font-weight:600;color:var(--accent);cursor:pointer}
+    .delete-btn{background:none;border:none;font-size:20px;color:var(--red);cursor:pointer}
+    .fade-out{opacity:0;transform:translateX(100%)}
+    .empty{font-size:15px;color:#64748b;text-align:center;margin-top:20px}
+  </style>
+</head>
+<body>
+<div class="wrapper">
+  <!-- SETTINGS -->
+  <div class="card">
+    <h1>Capital Dashboard</h1>
+    <label>Capital ($)<input id="capital" type="number" readonly></label>
+    <label>Payout (decimal)<input id="payout" type="number" min="0.1" max="2" step="0.01" value="0.8"></label>
+    <label>Risk / Trade (%)<input id="risk" type="number" min="0.5" max="20" step="0.1" value="5"></label>
+    <label>Daily Loss Limit (%)<input id="dll" type="number" min="1" max="50" step="1" value="15"></label>
+    <label>Weekly Loss Limit (%)<input id="wll" type="number" min="1" max="50" step="1" value="25"></label>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div class="card dashboard">
+    <div class="stake" id="stake">5</div>
+    <div class="status" id="status">OK to trade</div>
+    <div class="quick-grid">
+      <button class="quick-btn" onclick="quick('CALL','WIN')">CALL WIN</button>
+      <button class="quick-btn" onclick="quick('CALL','LOSE')">CALL LOSE</button>
+      <button class="quick-btn" onclick="quick('PUT','WIN')">PUT WIN</button>
+      <button class="quick-btn" onclick="quick('PUT','LOSE')">PUT LOSE</button>
+    </div>
+  </div>
+
+  <!-- SORT BAR -->
+  <div class="card">
+    <div class="sort-bar">
+      <button class="sort-btn desc" data-key="date">Date</button>
+      <button class="sort-btn desc" data-key="equity">Equity</button>
+      <button class="sort-btn desc" data-key="result">Result</button>
+    </div>
+    <div id="trade-list"></div>
+  </div>
+</div>
+
+<script>
+/* ========== CONFIG ========== */
+const GIST_ID='97cf2c4e3be3cfd1c63ea4ab8e66007b';   // ← 1. paste your gist ID
+const GIST_FILE='sync.json';             // file inside the gist
+let trades=[];
+let sortKey='date', sortDir='desc';
+
+/* ========== UTILS ========== */
+const fields=['payout','risk','dll','wll'];
+const els=Object.fromEntries(fields.map(f=>[f,document.getElementById(f)]));
+fields.forEach(f=>{els[f].value=localStorage.getItem(f)??els[f].value;els[f].addEventListener('input',saveSettings)});
+
+function saveSettings(){fields.forEach(f=>localStorage.setItem(f,els[f].value))}
+
+async function gist(method,data){
+  const url=`https://api.github.com/gists/${GIST_ID}`;
+  const headers={'Content-Type':'application/json'};
+  if(method==='GET') return fetch(url).then(r=>r.json());
+  return fetch(url,{
+    method:'PATCH',
+    headers,
+    body:JSON.stringify({files:{[GIST_FILE]:{content:JSON.stringify(data)}}})
+  }).then(r=>r.json());
+}
+
+async function load(){
+  try{
+    const gist=await gist('GET');
+    const raw=gist.files[GIST_FILE].content;
+    const obj=JSON.parse(raw||'{}');
+    trades=obj.trades||[];
+    localStorage.setItem('initialCapital',obj.initialCapital||100);
+  }catch(e){console.error('load',e)}
+  render();
+}
+async function save(){
+  const obj={
+    initialCapital:parseFloat(localStorage.getItem('initialCapital')||100),
+    trades,
+    settings:{
+      payout:parseFloat(els.payout.value),
+      risk:parseFloat(els.risk.value),
+      dll:parseFloat(els.dll.value),
+      wll:parseFloat(els.wll.value)
+    }
+  };
+  await gist('PATCH',obj);
+  render();
+}
+
+/* ========== BUSINESS LOGIC ========== */
+function quick(dir,res){
+  const stake=calcStake();
+  const pl=res==='WIN'?+(stake*parseFloat(els.payout.value)).toFixed(2):-stake;
+  trades.unshift({date:new Date().toISOString(),dir,stake,res,pl});
+  save();
+}
+function remove(index){
+  const card=document.querySelectorAll('.trade-card')[index];
+  card.classList.add('fade-out');
+  setTimeout(()=>{trades.splice(index,1);save();},300);
+}
+function edit(index,key,val){
+  const t=trades[index];
+  if(key==='res'||key==='dir') t[key]=val;
+  t.pl=t.res==='WIN'?+(t.stake*parseFloat(els.payout.value)).toFixed(2):-t.stake;
+  save();
+}
+function calcStake(){
+  const eq=parseFloat(localStorage.getItem('initialCapital')||100);
+  return Math.max(1,Math.round(eq*parseFloat(els.risk.value)/100));
+}
+
+/* ========== RENDER ========== */
+function render(){
+  const eq=parseFloat(localStorage.getItem('initialCapital')||100);
+  let running=eq;
+  trades.forEach(t=>running=+(running+t.pl).toFixed(2));
+  document.getElementById('capital').value=running.toFixed(2);
+  document.getElementById('stake').textContent=calcStake();
+
+  // limits
+  const dailyTrades=trades.filter(t=>new Date(t.date).toDateString()===new Date().toDateString());
+  const weeklyTrades=trades.filter(t=>{
+    const d=new Date(t.date);
+    const weekStart=new Date();weekStart.setDate(weekStart.getDate()-weekStart.getDay());
+    return d>=weekStart;
+  });
+  const dailyPL=dailyTrades.reduce((a,t)=>a+t.pl,0);
+  const weeklyPL=weeklyTrades.reduce((a,t)=>a+t.pl,0);
+  const dll=running*parseFloat(els.dll.value)/100;
+  const wll=running*parseFloat(els.wll.value)/100;
+  const st=document.getElementById('status');
+  if(weeklyPL<=-wll||dailyPL<=-dll){st.textContent='STOP (limit hit)';st.className='status stop';}
+  else if(running<70){st.textContent='Reduce stake';st.className='status warn';}
+  else{st.textContent='OK to trade';st.className='status ok';}
+
+  // sort & show
+  const sorted=[...trades].sort((a,b)=>{
+    let vA=a[sortKey], vB=b[sortKey];
+    if(sortKey==='date'){vA=new Date(vA); vB=new Date(vB);}
+    return sortDir==='asc' ? (vA>vB?1:-1) : (vA<vB?1:-1);
+  });
+
+  const list=document.getElementById('trade-list');
+  list.innerHTML='';
+  if(sorted.length===0){
+    list.innerHTML='<div class="empty">No trades yet</div>';
+    return;
+  }
+  sorted.forEach((t,i)=>{
+    const card=document.createElement('div');
+    card.className='trade-card';
+    card.innerHTML=`
+      <div class="trade-cell">${i+1}</div>
+      <div class="trade-cell">${new Date(t.date).toLocaleString()}</div>
+      <div class="trade-cell">
+        <select onchange="edit(${trades.indexOf(t)},'dir',this.value)">
+          <option ${t.dir==='CALL'?'selected':''}>CALL</option>
+          <option ${t.dir==='PUT'?'selected':''}>PUT</option>
+        </select>
+      </div>
+      <div class="trade-cell">${t.stake}</div>
+      <div class="trade-cell">
+        <select onchange="edit(${trades.indexOf(t)},'res',this.value)">
+          <option ${t.res==='WIN'?'selected':''}>WIN</option>
+          <option ${t.res==='LOSE'?'selected':''}>LOSE</option>
+        </select>
+      </div>
+      <div class="trade-cell">${t.pl.toFixed(2)}</div>
+      <div class="trade-cell">${(parseFloat(localStorage.getItem('initialCapital')||100)+trades.slice(0,trades.indexOf(t)+1).reduce((a,tr)=>a+tr.pl,0)).toFixed(2)}</div>
+      <button class="delete-btn" onclick="remove(${trades.indexOf(t)})">✕</button>`;
+    list.appendChild(card);
+  });
+}
+
+/* ---------- SORT TOGGLE ---------- */
+document.addEventListener('click',e=>{
+  if(!e.target.matches('.sort-btn')) return;
+  const key=e.target.dataset.key;
+  if(key===sortKey){
+    sortDir=sortDir==='asc'?'desc':'asc';
+  }else{
+    sortKey=key; sortDir='desc';
+  }
+  render();
+});
+
+load(); // first load
+</script>
+</body>
+</html>
